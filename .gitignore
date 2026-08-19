@@ -1,0 +1,41 @@
+# === STM32 编译产物 ===
+build/
+Debug/
+Release/
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+*.o
+*.d
+
+# === STM32 IDE 配置 ===
+.settings/
+.metadata/
+**/.settings/
+
+# === VS Code（可选保留，注释掉则上传） ===
+# .vscode/
+
+# === Python ===
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+venv/
+
+# === 临时文件 ===
+*.log
+*.tmp
+*.bak
+*.swp
+
+# === 系统文件 ===
+.DS_Store
+Thumbs.db
+
+# === 敏感信息 ===
+.env
+*.key
+*.pem

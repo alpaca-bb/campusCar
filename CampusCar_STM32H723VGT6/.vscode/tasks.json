@@ -1,0 +1,58 @@
+{
+//   "version": "2.0.0",
+//   "tasks": [
+//     {
+//         "label": "flash-openocd",
+//         "type": "shell",
+//         "command": "openocd",
+//         "args": [
+//             "-f",
+//             "daplink.cfg",
+//             "-c",
+//             "program build/Debug/RM26_H7.elf reset exit"
+//         ],
+//         "problemMatcher": []
+//     }
+//   ]
+// }
+// {
+	// "folders": [
+	// 	{
+	// 		"path": ".."
+	// 	}
+	// ],
+	
+	"version": "2.0.0", //Ctrl+Shift+B
+
+		
+		"tasks": [
+			{
+				"label": "Flash with DAP-Link (No Debug)",
+				"type": "shell",
+				"command": "openocd",
+				"args": [
+					"-f",
+					"daplink.cfg",
+					"-c",
+                    "program build/Debug/RM26_H7.elf reset exit"
+				],
+				"options": {
+					"cwd": "${workspaceFolder}"
+				},
+				"problemMatcher": [],
+				"group": {
+					"kind": "build",
+					"isDefault": false
+				},
+				"presentation": {
+					"echo": true,
+					"reveal": "always",
+					"focus": false,
+					"panel": "shared",
+					"showReuseMessage": true,
+					"clear": false
+				},
+			}
+		]
+	
+}

@@ -1,0 +1,71 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "jlinkgdbtarget",
+            "request": "launch",
+            "name": "STM32Cube: STM32 Launch JLink GDB Server",
+            "origin": "snippet",
+            "cwd": "${workspaceFolder}",
+            // "executable": "${workspaceFolder}/build/Debug/RM26_H7.elf",
+            "preBuild": "${command:st-stm32-ide-debug-launch.build}",
+            "runEntry": "main",
+            "imagesAndSymbols": [
+                {
+                    // "imageFileName": "${command:st-stm32-ide-debug-launch.get-projects-binary-from-context1}"?
+                    "imageFileName": "${workspaceFolder}/build/Debug/CampusCar_STM32H723VGT6.elf",
+                    "symbolsOnImage": true
+                }
+            ]
+        },
+        {
+            "type": "stlinkgdbtarget",
+            "request": "launch",
+            "name": "STM32Cube: STM32 Launch ST-Link GDB Server",
+            "origin": "snippet",
+            "cwd": "${workspaceFolder}",
+            "preBuild": "${command:st-stm32-ide-debug-launch.build}",
+            "runEntry": "main",
+            "imagesAndSymbols": [
+                {
+                    "imageFileName": "${command:st-stm32-ide-debug-launch.get-projects-binary-from-context1}"
+                }
+            ]
+        },
+        {
+            "name": "STM32 Debug (DAP)",
+            "type": "cortex-debug",
+            "request": "launch",
+            "servertype": "openocd",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/Debug/CampusCar_STM32H723VGT6.elf",
+            "configFiles": [
+                "${workspaceFolder}/daplink.cfg"
+            ],
+            "runToEntryPoint": "main",
+            "device": "STM32H723VGTx",
+            "liveWatch": {
+                "enabled": true,
+                "samplesPerSecond": 4
+            },
+            // "svdFile": "${workspaceFolder}/STM32H7.svd"
+        },
+        {
+            "type": "cortex-debug",
+            "request": "launch",
+            "name": "Cortex-Debug (J-Link)",
+            "servertype": "jlink",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/Debug/CampusCar_STM32H723VGT6.elf",
+            "device": "STM32H723VG",
+            "interface": "swd", // 建议加上这一行明确指定 SWD 接口
+            "serverpath": "D:\\Embedded\\JLink\\JLinkGDBServerCL.exe", // 精确指向你的 JLink 路径
+            "gdbPath": "D:/Embedded/OpenOCD/arm-none-eabi-gdb.exe",  
+            "runToEntryPoint": "main",
+            "liveWatch": {
+                "enabled": true,
+                "samplesPerSecond": 4
+            }
+        }
+    ]
+}
