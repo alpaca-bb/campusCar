@@ -27,7 +27,6 @@
 /* USER CODE BEGIN Includes */
 #include "hoverboard_usart_app_example.h"  /* 串口直控电调库 (UART7) */
 #include "servo_controller.h"              /* 舵机控制模块 */
-#include "esc_pwm_controller.h"            /* PWM 控制模块（备用） */
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -41,9 +40,9 @@
 #include <stdio.h>
 #include <string.h>
 
-/* ====== 串口协议定义 ====== */
-#define FRAME_HEADER         0xABCD  /* 帧头 */
-#define SERIAL_COMMAND_SIZE  8       /* 命令帧长度 (标准8字节) */
+/* ====== 协议定义 ====== */
+#define SERIAL_COMMAND_SIZE 8U       /* NUC 发来的命令帧大小 (字节) */
+#define FRAME_HEADER        0xABCDU  /* hoverboard 协议帧头 */
 
 /* ====== PWM 参数 (STM32H723: TIM1时钟=200MHz, PSC=199 → 1MHz 计数) ====== */
 /* 1 个计数 = 1μs，所以 1000 计数=1.0ms, 1500 计数=1.5ms(停止), 2000 计数=2.0ms */
@@ -52,10 +51,14 @@
 #define PWM_MAX_VALUE       2000U    /* 2.0ms 脉宽 = 最大前进/最大左转 */
 
 /* ====== 命令值范围 (hoverboard 协议 speed/steer 的范围) ====== */
-#define SERIAL_FEEDBACK_SIZE 16      /* 反馈帧长度 */
-#define FEEDBACK_PERIOD_MS   200     /* 反馈周期 */
-#define COMMAND_MIN          (-1000) /* 命令最小值 */
-#define COMMAND_MAX          1000     /* 命令最大值 */
+#define COMMAND_MIN        -1000
+#define COMMAND_MAX         1000
+
+/* ====== 反馈帧大小 ====== */
+#define SERIAL_FEEDBACK_SIZE  16U   /* SerialFeedbackCompact = 16 字节 */
+
+/* ====== 反馈周期: 每 200ms 发送一次保持连接 (驱动 1s 超时判离线) ====== */
+#define FEEDBACK_PERIOD_MS    200U
 
 /* ====== MG996R 舵机参数 (TIM2: 50Hz PSC=199 ARR=19999 → 1 count=1μs) ====== */
 /* MG996R 180° 舵机：0.5ms=0° / 1.5ms=90°(中位) / 2.5ms=180° */
@@ -81,12 +84,12 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-/* 命令帧结构 (8 字节) - 标准hoverboard协议 */
-typedef struct __attribute__((packed)) {
-    uint16_t start;       /* 帧头 0xABCD */
-    int16_t  steer;       /* 转向命令 (-1000~1000) */
-    int16_t  speed;       /* 速度命令 (-1000~1000) */
-    uint16_t checksum;    /* XOR 校验和 */
+/* hoverboard 协议命令结构体 (小端序，与 NUC 侧 hoverboard_driver 一致) */
+typedef struct {
+    uint16_t start;     /* 固定帧头 0xABCD */
+    int16_t  steer;     /* 转向值 -1000~1000 (右负左正) */
+    int16_t  speed;     /* 速度值 -1000~1000 (后退负前进正) */
+    uint16_t checksum;  /* 校验和 = start ^ steer ^ speed (XOR) */
 } SerialCommand;
 
 /* 反馈帧结构体 (小端序, 16 字节, 与 NUC 侧 SerialFeedbackCompact 一致) */
@@ -111,7 +114,13 @@ static void MPU_Config(void);
 static void debug_print(const char *str);
 static int parse_command(const uint8_t *data, SerialCommand *cmd);
 static void send_feedback(const SerialCommand *cmd);
-static void led_stage(uint8_t stage_num);
+
+/* ROLLBACK-PWM: 旧 PWM 方案函数声明（保留但不使用） */
+static void pwm_init(void);
+static void esc_gesture_init(void);
+static void apply_command_to_pwm(const SerialCommand *cmd);
+
+static void led_stage(uint8_t stage_num);  /* PC13 快闪 N 次指示阶段 */
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -120,6 +129,64 @@ static void led_stage(uint8_t stage_num);
 static void debug_print(const char *str)
 {
     HAL_UART_Transmit(&huart1, (uint8_t *)str, (uint16_t)strlen(str), 200);
+}
+
+static void pwm_init(void)
+{
+    __HAL_TIM_MOE_ENABLE(&htim1);
+    HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+    HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_3);
+    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, PWM_STOP_VALUE);
+    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, PWM_STOP_VALUE);
+}
+
+/* 电调手势初始化：通过 PWM 组合手势将电调从 USART 模式切换到 PWM 模式 */
+/* 顺序：中位预备 → 速度上 → 速度下 → 转向左 → 转向右 → 立即回中 */
+static void esc_gesture_init(void)
+{
+    /* 步骤1：中位预备 - 两路 1500us，保持 400ms 完成信号稳定 */
+    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, PWM_STOP_VALUE);  /* speed = 1500us */
+    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, PWM_STOP_VALUE);  /* steer = 1500us */
+    debug_print("[ESC] Gesture: center prep 400ms\r\n");
+    HAL_Delay(400);
+
+    /* 步骤2：上 (speed up) - CH2 > 1800us → 1900us，保持 120ms */
+    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 1900);
+    debug_print("[ESC] Gesture: up\r\n");
+    HAL_Delay(120);
+
+    /* 回中 */
+    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, PWM_STOP_VALUE);
+    HAL_Delay(100);
+
+    /* 步骤3：下 (speed down) - CH2 < 1200us → 1100us，保持 120ms */
+    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 1100);
+    debug_print("[ESC] Gesture: down\r\n");
+    HAL_Delay(120);
+
+    /* 回中 */
+    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, PWM_STOP_VALUE);
+    HAL_Delay(100);
+
+    /* 步骤4：左 (steer left) - CH1 < 1200us → 1100us，保持 120ms */
+    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, 1100);
+    debug_print("[ESC] Gesture: left\r\n");
+    HAL_Delay(120);
+
+    /* 回中 */
+    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, PWM_STOP_VALUE);
+    HAL_Delay(100);
+
+    /* 步骤5：右 (steer right) - CH1 > 1800us → 1900us，保持 60ms（安全要求 40-80ms） */
+    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, 1900);
+    debug_print("[ESC] Gesture: right\r\n");
+    HAL_Delay(60);
+
+    /* 立即回中（安全要求） */
+    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, PWM_STOP_VALUE);
+    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, PWM_STOP_VALUE);
+    debug_print("[ESC] Gesture: done, back to center\r\n");
+    HAL_Delay(500);
 }
 
 /* 解析 hoverboard 协议命令，返回值：0=成功, 1=帧头错误, 2=校验错误 */
@@ -175,6 +242,36 @@ static int parse_command(const uint8_t *data, SerialCommand *cmd)
     return 0;  /* 成功 */
 }
 
+/* 将命令应用到 PWM 输出 */
+static void apply_command_to_pwm(const SerialCommand *cmd)
+{
+    uint32_t speed_pwm;
+    uint32_t steer_pwm;
+    char buf[80];
+
+    /* speed: -1000~1000 映射到 1000~2000 (PWM_MIN~PWM_MAX) */
+    /* -1000 → 1000 (后退最大), 0 → 1500 (停止), 1000 → 2000 (前进最大) */
+    speed_pwm = PWM_STOP_VALUE + (cmd->speed * 500) / 1000;
+    if (speed_pwm > PWM_MAX_VALUE) speed_pwm = PWM_MAX_VALUE;
+    if (speed_pwm < PWM_MIN_VALUE) speed_pwm = PWM_MIN_VALUE;
+
+    /* steer: -1000~1000 映射到 1000~2000 */
+    /* -1000 → 1000 (右转最大), 0 → 1500 (停止), 1000 → 2000 (左转最大) */
+    steer_pwm = PWM_STOP_VALUE + (cmd->steer * 500) / 1000;
+    if (steer_pwm > PWM_MAX_VALUE) steer_pwm = PWM_MAX_VALUE;
+    if (steer_pwm < PWM_MIN_VALUE) steer_pwm = PWM_MIN_VALUE;
+
+    /* CH1 = 速度 (PE9), CH3 = 转向 (PE13) */
+    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, speed_pwm);
+    __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, steer_pwm);
+
+    /* 打印 PWM 输出值 */
+    snprintf(buf, sizeof(buf),
+             "[PWM] CH1(speed)=%lu CH3(steer)=%lu\r\n",
+             (unsigned long)speed_pwm, (unsigned long)steer_pwm);
+    debug_print(buf);
+}
+
 /* 发送反馈帧给 NUC (SerialFeedbackCompact, 16 字节) */
 /* 驱动需要收到反馈帧才会判定为 "connected"，否则显示离线 */
 static void send_feedback(const SerialCommand *cmd)
@@ -206,6 +303,90 @@ static void send_feedback(const SerialCommand *cmd)
 /* LED 阶段指示函数 */
 static void led_stage(uint8_t stage_num)
 {
+    char buf[80];
+    HAL_StatusTypeDef st;
+    uint32_t actual_arr, actual_psc, actual_ccr;
+
+    /* 1) 强制触发 TIM 更新事件：确保 ARR/PSC/CCR 从预装载寄存器写入影子寄存器 */
+    /* 否则 H7 定时器可能保留旧 CubeMX 值，PWM 频率/脉宽完全错乱 */
+    __HAL_TIM_DISABLE(&SERVO_HTIM);
+    __HAL_TIM_SET_AUTORELOAD(&SERVO_HTIM, 19999U);  /* 强写 ARR=19999，防 CubeMX 遗漏 */
+    __HAL_TIM_SET_PRESCALER(&SERVO_HTIM, 191U);     /* 强写 PSC=191 (SYSCLK=192MHz → 192/(191+1)=1MHz) */
+    __HAL_TIM_SET_COMPARE(&SERVO_HTIM, SERVO_TIM_CH, SERVO_PULSE_MID);
+    /* 开 ARR 和 CCR1 预装载（对标商家例程规范，直接写寄存器位域，不依赖非标准 HAL 宏）
+     * CR1.ARPE = 1          (TIM_CR1_ARPE)     : ARR 缓冲预装载，等当前周期结束加载
+     * CCMR1.OC1PE = 1       (TIM_CCMR1_OC1PE)  : CCR1 缓冲预装载（CH1 专用）*/
+    SERVO_HTIM.Instance->CR1   |= TIM_CR1_ARPE;
+    SERVO_HTIM.Instance->CCMR1 |= TIM_CCMR1_OC1PE;
+    /* 直接写 EGR 寄存器 UG 位 = 强制产生更新事件，硬件自动加载影子寄存器并清 UG 位 */
+    SERVO_HTIM.Instance->EGR = TIM_EGR_UG;
+    __HAL_TIM_CLEAR_FLAG(&SERVO_HTIM, TIM_FLAG_UPDATE);
+
+    /* 2) 先写一次 CCR → 启动 PWM → 再写一次 CCR（H7 TIM 启动顺序双保险） */
+    __HAL_TIM_SET_COMPARE(&SERVO_HTIM, SERVO_TIM_CH, SERVO_PULSE_MID);
+    st = HAL_TIM_PWM_Start(&SERVO_HTIM, SERVO_TIM_CH);
+    __HAL_TIM_SET_COMPARE(&SERVO_HTIM, SERVO_TIM_CH, SERVO_PULSE_MID);
+
+    /* 3) 回读寄存器（直接读 TIM 寄存器，避免依赖非标准 HAL 宏），确认真的写进去了 */
+    actual_arr = __HAL_TIM_GET_AUTORELOAD(&SERVO_HTIM);
+    actual_psc = SERVO_HTIM.Instance->PSC;          /* 直接读 PSC 寄存器 */
+    actual_ccr = __HAL_TIM_GET_COMPARE(&SERVO_HTIM, SERVO_TIM_CH);
+
+    snprintf(buf, sizeof(buf),
+             "[SERVO] TIM2 reg check: ARR=%lu PSC=%lu CCR=%lu (expect 19999/191/%lu)\r\n",
+             (unsigned long)actual_arr, (unsigned long)actual_psc,
+             (unsigned long)actual_ccr, (unsigned long)SERVO_PULSE_MID);
+    debug_print(buf);
+
+    /* 4) 任何一步失败 → PC13 快闪报错（肉眼可见，不用万用表） */
+    if (st != HAL_OK || actual_arr != 19999U || actual_psc != 191U ||
+        actual_ccr != SERVO_PULSE_MID) {
+        debug_print("[ERR] SERVO init FAILED, PC13 100ms blink fast forever\r\n");
+        while (1) {
+            HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+            HAL_Delay(100);
+        }
+    }
+
+    snprintf(buf, sizeof(buf),
+             "[SERVO] Init OK TIM2_CH1(PA00), PWM 50Hz, mid=90deg(%luus)\r\n",
+             (unsigned long)SERVO_PULSE_MID);
+    debug_print(buf);
+}
+
+/* 设置 MG996R 舵机角度 (0~180°，内部自动钳位到安全范围 20~160°) */
+/* 脉宽映射：angle → pulse = 500 + (angle/180)*2000，整数计算避免浮点 */
+static void servo_set_angle(uint8_t angle)
+{
+    uint32_t pulse;
+    char buf[80];
+
+    /* 钳位到安全角度范围 */
+    if (angle < SERVO_ANGLE_SAFE_MIN) angle = SERVO_ANGLE_SAFE_MIN;
+    if (angle > SERVO_ANGLE_SAFE_MAX) angle = SERVO_ANGLE_SAFE_MAX;
+
+    /* 整数角度转整数脉宽：
+     * 脉宽 = 500 + angle * (2000 / 180) 近似 = 500 + angle * 111 / 10
+     * 误差 <1μs，MG996R 精度足够 (步进约 10μs 级别) */
+    pulse = SERVO_PULSE_MIN + ((uint32_t)angle * 2000U) / 180U;
+
+    /* 再钳位一次脉宽，确保无论 angle 传什么都在 500~2500 范围 */
+    if (pulse < SERVO_PULSE_MIN) pulse = SERVO_PULSE_MIN;
+    if (pulse > SERVO_PULSE_MAX) pulse = SERVO_PULSE_MAX;
+
+    __HAL_TIM_SET_COMPARE(&SERVO_HTIM, SERVO_TIM_CH, pulse);
+
+    snprintf(buf, sizeof(buf),
+             "[SERVO] angle=%3u  pulse=%4luus\r\n",
+             (unsigned)angle, (unsigned long)pulse);
+    debug_print(buf);
+}
+
+/* ================ LED 阶段指示：不用串口/万用表，看 PC13 闪几次就知道卡在哪 ================ */
+/* 用法：在关键阶段调用 led_stage(1), led_stage(2), ...
+ * PC13 会快速闪烁 N 次（每次间隔 120ms），然后熄灭 600ms，用户数清楚次数即可。 */
+static void led_stage(uint8_t stage_num)
+{
     char buf[40];
     if (stage_num == 0) stage_num = 1;
     if (stage_num > 9)  stage_num = 9;
@@ -224,6 +405,68 @@ static void led_stage(uint8_t stage_num)
     debug_print(buf);
 }
 
+/* ================ 软件 PWM 测试 PA00：不依赖 TIM/AF 复用，纯 GPIO 翻转 ================ */
+/* 作用：快速区分 "CubeMX 引脚复用配置错误" vs "接线/舵机本体问题"
+ * 参数：
+ *   pulse_us    = 高电平时间（微秒），1500=中位，500=0°，2500=180°
+ *   duration_ms = 本测试持续总时间（毫秒）
+ * 原理：每 20ms 一个周期，前 pulse_us 拉高 PA00，剩 (20000-pulse_us) 拉低。
+ *       只要这函数里舵机跳了，就 100% 证明接线/舵机/供电没问题，问题出在 CubeMX 里 PA00 的 AF。 */
+static void software_pwm_test_pa00(uint16_t pulse_us, uint32_t duration_ms)
+{
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+    uint32_t elapsed_ms = 0;
+    char buf[80];
+
+    /* 1) 临时把 PA00 改为普通 GPIO 推挽输出（覆盖 CubeMX 的 TIM2_CH1 AF 配置） */
+    __HAL_RCC_GPIOA_CLK_ENABLE();
+    GPIO_InitStruct.Pin   = GPIO_PIN_0;
+    GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull  = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_RESET);
+
+    /* 2) 安全钳位脉宽 */
+    if (pulse_us < SERVO_PULSE_MIN) pulse_us = SERVO_PULSE_MIN;
+    if (pulse_us > SERVO_PULSE_MAX) pulse_us = SERVO_PULSE_MAX;
+    uint32_t low_us = 20000U - (uint32_t)pulse_us;
+
+    snprintf(buf, sizeof(buf),
+             "[SW-PWM] PA00 GPIO MODE, pulse=%uus, duration=%lums (watch servo click!)\r\n",
+             (unsigned)pulse_us, (unsigned long)duration_ms);
+    debug_print(buf);
+
+    /* 3) 纯软件翻转 PA00，每 20ms (50Hz) 一个周期 */
+    while (elapsed_ms < duration_ms) {
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET);
+        /* 用 SysTick 忙等微秒：HAL_GetTick 精度是 1ms，所以 pulse_us 用 1ms 近似。
+         * 真实脉宽会偏差 ±0.5ms，但 MG996R 识别绰绰有余，只是为了证明有没有 PWM 输出。 */
+        uint32_t high_ms = (pulse_us + 500U) / 1000U;   /* 四舍五入转 ms */
+        if (high_ms == 0) high_ms = 1;
+        HAL_Delay(high_ms);
+
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_RESET);
+        uint32_t low_ms = (low_us + 500U) / 1000U;
+        if (low_ms == 0) low_ms = 1;
+        HAL_Delay(low_ms);
+
+        elapsed_ms += high_ms + low_ms;
+    }
+
+    /* 4) 测试结束：PA00 恢复为浮空输入，防止影响 TIM2 PWM 恢复
+     *    (后续 servo_init() 会重新 MX_TIM2_Init 并配置 AF，不过保险起见先复位) */
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_RESET);
+    GPIO_InitStruct.Pin  = GPIO_PIN_0;
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+    /* 重新调用 CubeMX 生成的 MX_TIM2_Init，把 PA00 切回 TIM2_CH1 AF 复用，
+     * 让后面 servo_init() 的硬件 PWM 能正常工作。 */
+    MX_TIM2_Init();
+
+    debug_print("[SW-PWM] Done, PA00 restored to TIM2_CH1 AF mode\r\n");
+}
 /* USER CODE END 0 */
 
 /**
@@ -294,13 +537,28 @@ int main(void)
     debug_print("[SERVO] Test complete.\r\n");
   }
 
-/* ROLLBACK-PWM-BEGIN (使用新模块) */
+/* ROLLBACK-PWM-BEGIN -----------------------------------------------------------
+ * 电调 PWM 方案（已实车验证，当前主推串口直控 UART7 方案）挂起。
+ * 回滚步骤（5 分钟切回 PWM）：
+ *   1) 把本块 #if 0 改为 #if 1（启用）
+ *   2) 把下方 [ROLLBACK-PWM-2/3/4] 三处同级块同步改为 #if 1
+ *   3) 硬件接线：STM32 PE9→电调CH1、PE13→电调CH2、共地（代替 UART7 接线）
+ *   4) 烧录上电，自动执行 9 步手势，电调响 4+8 声后即进入 PWM 模式
+ *------------------------------------------------------------------------- */
 #if 0
-  ESC_PWM_Init();
+  /* 初始化 PWM 输出 */
+  pwm_init();
+
+  /* 等待电调上电完成 */
   HAL_Delay(1000);
-  ESC_PWM_GestureInit();
+
+  /* 执行电调手势序列：自动从 USART 模式切换到 PWM 模式 */
+  /* 顺序：中位预备 → 速度上 → 速度下 → 转向左 → 转向右 → 回中 */
+  debug_print("[ESC] Starting gesture init...\r\n");
+  esc_gesture_init();
+  debug_print("[ESC] Gesture init complete. Waiting for 4+8 beeps.\r\n");
 #endif
-/* ROLLBACK-PWM-END */
+/* ROLLBACK-PWM-END ------------------------------------------------------------- */
 
   /* ============== UART7 串口直控方案（主推方案，已集成） ============== */
   /* UART7 (PE7 RX / PE8 TX) 连接电调 USART2 (PA3 RX / PA2 TX)
@@ -373,13 +631,10 @@ int main(void)
 #endif
 /* ROLLBACK-PWM-2-END ----------------------------------------------------------- */
 
-  /* 主循环：PC14 闪烁 + 等待串口命令 + UART7 心跳 + 反馈帧 + 舵机测试 */
+  /* 主循环：PC14 闪烁 + 等待串口命令 + UART7 心跳 + 反馈帧 */
   uint32_t last_led_tick = HAL_GetTick();
   uint32_t last_cmd_tick = HAL_GetTick();
   uint32_t last_feedback_tick = HAL_GetTick();
-  uint32_t last_servo_tick = HAL_GetTick();  /* 舵机测试定时 */
-  uint8_t servo_angle = 90;                   /* 舵机当前角度 */
-  int8_t servo_direction = 1;                 /* 舵机扫描方向 */
   uint8_t cmd_buffer[SERIAL_COMMAND_SIZE] = {0};
   SerialCommand current_cmd = {0};
 
@@ -396,20 +651,25 @@ int main(void)
       HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_14);
     }
 
-    /* 等待串口命令（改为非阻塞，超时1ms） */
-    if (HAL_UART_Receive(&huart1, cmd_buffer, SERIAL_COMMAND_SIZE, 1) == HAL_OK)
+    /* 等待串口命令（超时 100ms，方便手动发送） */
+    if (HAL_UART_Receive(&huart1, cmd_buffer, SERIAL_COMMAND_SIZE, 100) == HAL_OK)
     {
       /* 收到 8 字节数据，解析命令 */
       int result = parse_command(cmd_buffer, &current_cmd);
       if (result == 0)
       {
-/* ROLLBACK-PWM-3-BEGIN (使用新模块) */
+/* ROLLBACK-PWM-3-BEGIN -------------------------------------------------------
+ * PWM 方案：解析成功后直接把 steer/speed 应用到 TIM1 CH1/CH3 PWM。
+ * 串口方案（主推）：转发命令给 HoverboardApp_SetCommand() → UART7 → 电调
+ *------------------------------------------------------------------------- */
 #if 0
-        ESC_PWM_ApplyCommand(current_cmd.steer, current_cmd.speed);
+        /* PWM 方案（已挂起）：解析成功，应用到 TIM1 PWM */
+        apply_command_to_pwm(&current_cmd);
 #else
+        /* 串口方案（主推）：转发命令给 UART7 控制器 */
         HoverboardApp_SetCommand(current_cmd.steer, current_cmd.speed);
 #endif
-/* ROLLBACK-PWM-3-END */
+/* ROLLBACK-PWM-3-END ----------------------------------------------------------- */
         last_cmd_tick = HAL_GetTick();
 
         /* 立即发送反馈帧给 NUC */
@@ -430,13 +690,18 @@ int main(void)
     else
     {
       /* 超时无数据：如果超过 1 秒没收到命令，安全回到停止位置。 */
-/* ROLLBACK-PWM-4-BEGIN (使用新模块) */
+/* ROLLBACK-PWM-4-BEGIN -------------------------------------------------------
+ * PWM 方案：超过 1s 无命令直接写 TIM1 CH1/CH3 回 1500us 中位。
+ * 串口方案（主推）：1s 超时保护由电调固件 0.8s 超时 + 老板 controller 20ms 保活共同负责。
+ *------------------------------------------------------------------------- */
 #if 0
-      if ((HAL_GetTick() - last_cmd_tick) > 1000) {
-        ESC_PWM_Stop();
+      if ((HAL_GetTick() - last_cmd_tick) > 1000)
+      {
+        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, PWM_STOP_VALUE);
+        __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_3, PWM_STOP_VALUE);
       }
 #endif
-/* ROLLBACK-PWM-4-END */
+/* ROLLBACK-PWM-4-END ----------------------------------------------------------- */
     }
 
     /* 周期性发送反馈帧：每 200ms 发送一次，保持 NUC 驱动 "connected" 状态 */
@@ -445,29 +710,6 @@ int main(void)
     {
       send_feedback(&current_cmd);
       last_feedback_tick = HAL_GetTick();
-    }
-
-    /* 舵机循环扫描测试：每 500ms 改变角度，20°~160° 往返 */
-    if ((HAL_GetTick() - last_servo_tick) >= 500)
-    {
-      servo_angle += (servo_direction * 10);  /* 每次移动10° */
-      
-      /* 到达边界时反向 */
-      if (servo_angle >= 160) {
-        servo_angle = 160;
-        servo_direction = -1;
-      } else if (servo_angle <= 20) {
-        servo_angle = 20;
-        servo_direction = 1;
-      }
-      
-      Servo_SetAngle(servo_angle);
-      last_servo_tick = HAL_GetTick();
-      
-      /* 调试输出：打印当前角度 */
-      char debug_buf[50];
-      snprintf(debug_buf, sizeof(debug_buf), "[SERVO] Angle: %u°\r\n", servo_angle);
-      debug_print(debug_buf);
     }
     /* USER CODE END WHILE */
 

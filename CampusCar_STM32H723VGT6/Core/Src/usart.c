@@ -25,6 +25,7 @@
 /* USER CODE END 0 */
 
 UART_HandleTypeDef huart1;
+UART_HandleTypeDef huart7;
 
 /* USART1 init function */
 
@@ -71,6 +72,50 @@ void MX_USART1_UART_Init(void)
 
 }
 
+/* UART7 init function  ——  连电调 USART2 (PE8 TX / PE7 RX, 115200 8N1) */
+void MX_UART7_Init(void)
+{
+
+  /* USER CODE BEGIN UART7_Init 0 */
+
+  /* USER CODE END UART7_Init 0 */
+
+  /* USER CODE BEGIN UART7_Init 1 */
+
+  /* USER CODE END UART7_Init 1 */
+  huart7.Instance = UART7;
+  huart7.Init.BaudRate = 115200;
+  huart7.Init.WordLength = UART_WORDLENGTH_8B;
+  huart7.Init.StopBits = UART_STOPBITS_1;
+  huart7.Init.Parity = UART_PARITY_NONE;
+  huart7.Init.Mode = UART_MODE_TX_RX;
+  huart7.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart7.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart7.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart7.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart7.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart7) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart7, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart7, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_DisableFifoMode(&huart7) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN UART7_Init 2 */
+
+  /* USER CODE END UART7_Init 2 */
+
+}
+
 void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
 {
 
@@ -112,6 +157,46 @@ void HAL_UART_MspInit(UART_HandleTypeDef* uartHandle)
   /* USER CODE BEGIN USART1_MspInit 1 */
 
   /* USER CODE END USART1_MspInit 1 */
+  }
+  else if(uartHandle->Instance==UART7)
+  {
+  /* USER CODE BEGIN UART7_MspInit 0 */
+
+  /* USER CODE END UART7_MspInit 0 */
+
+  /** Initializes the peripherals clock
+   *  UART7 属于 USART16910 时钟域，和 USART1 同源
+   */
+    PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_UART7;
+    PeriphClkInitStruct.Usart16ClockSelection = RCC_USART16910CLKSOURCE_D2PCLK2;
+    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+    {
+      Error_Handler();
+    }
+
+    /* UART7 clock enable */
+    __HAL_RCC_UART7_CLK_ENABLE();
+
+    __HAL_RCC_GPIOE_CLK_ENABLE();
+    /**UART7 GPIO Configuration
+    PE7     ------> UART7_RX
+    PE8     ------> UART7_TX
+    */
+    GPIO_InitStruct.Pin = GPIO_PIN_7|GPIO_PIN_8;
+    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Alternate = GPIO_AF7_UART7;
+    HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+
+    /* UART7 interrupt Init
+     * 优先级和 USART1 保持一致，确保电调 10ms 反馈帧不被长时间阻塞
+     */
+    HAL_NVIC_SetPriority(UART7_IRQn, 0, 0);
+    HAL_NVIC_EnableIRQ(UART7_IRQn);
+  /* USER CODE BEGIN UART7_MspInit 1 */
+
+  /* USER CODE END UART7_MspInit 1 */
   }
 }
 

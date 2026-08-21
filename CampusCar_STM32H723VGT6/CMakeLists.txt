@@ -45,11 +45,16 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
+    Core/Src/hoverboard_usart_controller.c
+    Core/Src/hoverboard_usart_app_example.c
+    Core/Src/servo_controller.c
+    Core/Src/esc_pwm_controller.c
 )
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
+    Core/Inc
 )
 
 # Add project symbols (macros)
