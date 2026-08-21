@@ -13,7 +13,7 @@
 
 ---
 
-## 📋 目录
+## 目录
 
 - [项目简介](#-项目简介)
 - [系统架构](#-系统架构)
@@ -27,7 +27,7 @@
 
 ---
 
-## 🚀 项目简介
+## 项目简介
 
 CampusCar 是一个基于 **ROS2 Humble** 和 **STM32H723VGT6** 的智能小车控制系统，支持：
 
@@ -45,7 +45,7 @@ CampusCar 是一个基于 **ROS2 Humble** 和 **STM32H723VGT6** 的智能小车�
 
 ---
 
-## 🏗️ 系统架构
+## 系统架构
 
 ### 完整控制链路
 
@@ -78,7 +78,7 @@ CampusCar 是一个基于 **ROS2 Humble** 和 **STM32H723VGT6** 的智能小车�
 
 ---
 
-## ✨ 功能特性
+## 功能特性
 
 ### 已实现功能 ✅
 
@@ -95,17 +95,17 @@ CampusCar 是一个基于 **ROS2 Humble** 和 **STM32H723VGT6** 的智能小车�
 | **视频流** | RTSP Server (端口8554) | ✅ 代码完成 |
 | **视觉控制** | 舵机视觉反馈控制节点 | ✅ 代码完成 |
 
-### 开发中功能 🚧
+### 预期实现功能 🎯
 
-- [ ] NUC ↔ STM32 全链路联调
-- [ ] 海康相机 (MV-CS016-10GC) 接入
-- [ ] RTK GPS 航点导航实测
-- [ ] UE5 远程控制对接
-- [ ] 多传感器融合
+- 🔄 NUC ↔ STM32 全链路联调
+- 📷 海康相机 (MV-CS016-10GC) 接入
+- 🗺️ RTK GPS 航点导航实测
+- 🎮 UE5 远程控制对接
+- 🔗 多传感器融合
 
 ---
 
-## 💻 运行环境
+## 运行环境
 
 ### 硬件要求
 
@@ -153,7 +153,7 @@ Web浏览器: Chrome/Edge (WebSocket支持)
 
 ---
 
-## 📦 安装配置
+## 安装配置
 
 ### 1. NUC端安装 (ROS2环境)
 
@@ -254,7 +254,7 @@ make -j4
 
 ---
 
-## 📖 使用说明
+## 使用说明
 
 ### 快速启动流程
 
@@ -279,8 +279,7 @@ cd ~/CampusCar/campusCar-hardware-new-stm32-hikrobot
 - `S` - 后退
 - `A` - 左转
 - `D` - 右转
-- `空格` - 停止
-- `Q` - 退出
+
 
 ---
 
@@ -345,7 +344,7 @@ WebSocket地址: ws://<NUC_IP>:9090
 
 ---
 
-## 📂 项目结构
+## 项目结构
 
 ```
 CampusCar/
@@ -414,7 +413,7 @@ CampusCar/
 
 ---
 
-## 📚 开发文档
+## 开发文档
 
 详细文档请查看 `各项说明/` 目录：
 
@@ -429,74 +428,8 @@ CampusCar/
 
 ---
 
-## ❓ 常见问题
 
-### Q1: NUC无法识别USB转TTL设备
-
-```bash
-# 检查设备
-ls /dev/ttyUSB*
-
-# 如果没有输出，安装驱动
-sudo modprobe ch341
-sudo modprobe ftdi_sio
-
-# 检查权限
-sudo usermod -aG dialout $USER
-# 注销后重新登录
-```
-
-### Q2: STM32烧录后LED不闪烁
-
-- 检查供电是否正常 (5V/3.3V)
-- 确认芯片型号为STM32H723VGT6
-- 检查启动模式跳线 (BOOT0=0)
-- 使用STM32CubeProgrammer重新烧录
-
-### Q3: 电调初始化失败(无滴滴声)
-
-- 确认PWM信号频率为50Hz
-- 检查电调接线: PE9→CH2(速度), PE13→CH1(转向)
-- 手动执行初始化手势 (上下左右快速扳动)
-- 参考: [PWM切换组合参数使用说明.md](各项说明/PWM切换组合参数使用说明.md)
-
-### Q4: rosbridge连接失败
-
-```bash
-# 检查rosbridge是否启动
-ros2 node list | grep rosbridge
-
-# 手动启动
-ros2 run rosbridge_server rosbridge_websocket --ros-args -p port:=9090
-
-# 测试连接
-curl http://localhost:9090
-```
-
-### Q5: 舵机抖动或不动
-
-- 检查TIM2 PWM输出 (PA0, 50Hz)
-- 确认舵机供电独立 (5V ≥ 1A)
-- 检查信号线连接和接地
-- 用示波器测量脉宽: 0.5ms~2.5ms
-
----
-
-## 🤝 贡献指南
-
-欢迎提交Issue和Pull Request！
-
-开发分支规范：
-- `main` - 稳定版本
-- `dev` - 开发版本
-- `feature/*` - 新功能分支
-- `fix/*` - Bug修复分支
-
----
-
----
-
-## 📞 联系方式
+## 联系方式
 
 - **项目维护**: qyubo
 - **GitHub**: https://github.com/qyubo/CampusCar
