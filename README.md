@@ -7,7 +7,7 @@
 
 [![ROS2](https://img.shields.io/badge/ROS2-Humble-blue)](https://docs.ros.org/en/humble/)
 [![STM32](https://img.shields.io/badge/STM32-H723VGT6-green)](https://www.st.com/en/microcontrollers-microprocessors/stm32h723vg.html)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 
 </div>
 
@@ -113,7 +113,7 @@ CampusCar 是一个基于 **ROS2 Humble** 和 **STM32H723VGT6** 的智能小车�
 |------|----------|------|
 | **主控板** | STM32H723VGT6 (达妙 DM-MC02) | 底层控制 |
 | **计算平台** | Intel NUC (Ubuntu 22.04) | ROS2运行环境 |
-| **底盘** | 4WD麦克纳姆轮底盘 | 全向移动 |
+| **底盘** | 4WD底盘 | 移动平台 |
 | **电调** | USART模式电调 | 电机驱动 |
 | **舵机** | MG996R (数字舵机) | 云台俯仰控制 |
 | **相机** | 海康 MV-CS016-10GC (可选) | 机器视觉 |
@@ -493,10 +493,6 @@ curl http://localhost:9090
 - `fix/*` - Bug修复分支
 
 ---
-
-## 📄 许可证
-
-本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件
 
 ---
 

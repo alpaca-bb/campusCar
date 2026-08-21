@@ -378,7 +378,7 @@ int main(void)
   uint32_t last_cmd_tick = HAL_GetTick();
   uint32_t last_feedback_tick = HAL_GetTick();
   uint32_t last_servo_tick = HAL_GetTick();  /* 舵机测试定时 */
-  uint8_t servo_angle = 90;                   /* 舵机当前角度 */
+  uint8_t servo_angle = 30;                   /* 舵机当前角度 */
   int8_t servo_direction = 1;                 /* 舵机扫描方向 */
   uint8_t cmd_buffer[SERIAL_COMMAND_SIZE] = {0};
   SerialCommand current_cmd = {0};
@@ -447,17 +447,17 @@ int main(void)
       last_feedback_tick = HAL_GetTick();
     }
 
-    /* 舵机循环扫描测试：每 500ms 改变角度，20°~160° 往返 */
+    /* 舵机循环扫描测试：每 500ms 改变角度，30°~90° 往返 */
     if ((HAL_GetTick() - last_servo_tick) >= 500)
     {
       servo_angle += (servo_direction * 10);  /* 每次移动10° */
       
       /* 到达边界时反向 */
-      if (servo_angle >= 160) {
-        servo_angle = 160;
+      if (servo_angle >= 90) {
+        servo_angle = 90;
         servo_direction = -1;
-      } else if (servo_angle <= 20) {
-        servo_angle = 20;
+      } else if (servo_angle <= 30) {
+        servo_angle = 30;
         servo_direction = 1;
       }
       
