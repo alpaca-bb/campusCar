@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=campusCar - 新底盘控制台
+Comment=通过 Docker 单独打开 STM32 新底盘控制 GUI
+Exec=gnome-terminal -- bash -lc "cd /home/hkust-gz-nuc/campusCar-new-chassis && ./scripts/desktop_run_stm32.sh gui; echo; read -p 'Press Enter to close...'"
+Icon=utilities-terminal
+Terminal=false
+Categories=Utility;

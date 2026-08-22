@@ -1,0 +1,8 @@
+chassis_driver:
+  ros__parameters:
+    serial_port: "/dev/ttyUSB0"
+    baud_rate: 115200
+    wheel_base: 0.5  # 轮距 (m)
+    wheel_radius: 0.1  # 轮半径 (m)
+    max_linear_vel: 1.0  # 最大线速度 (m/s)
+    max_angular_vel: 1.57  # 最大角速度 (rad/s)

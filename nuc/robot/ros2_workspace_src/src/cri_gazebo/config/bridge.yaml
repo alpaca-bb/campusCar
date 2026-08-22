@@ -1,0 +1,58 @@
+# ros_gz bridge 话题映射配置
+# 格式: topic_name + ros_type_name + gz_type_name + gz_topic + direction
+
+# ---- 点云 (Livox 3D LiDAR) ----
+- topic_name: /livox/pointcloud
+  ros_type_name: "sensor_msgs/msg/PointCloud2"
+  gz_type_name: "ignition.msgs.PointCloudPacked"
+  gz_topic: "/livox/scan/points"
+  direction: GZ_TO_ROS
+
+# ---- 相机图像 ----
+- topic_name: /camera/image_raw
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "ignition.msgs.Image"
+  gz_topic: "/camera/image"
+  direction: GZ_TO_ROS
+
+# ---- 相机信息 ----
+- topic_name: /camera/camera_info
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "ignition.msgs.CameraInfo"
+  gz_topic: "/camera/camera_info"
+  direction: GZ_TO_ROS
+
+# ---- 里程计 ----
+- topic_name: /odom
+  ros_type_name: "nav_msgs/msg/Odometry"
+  gz_type_name: "ignition.msgs.Odometry"
+  gz_topic: "/model/rover/odom"
+  direction: GZ_TO_ROS
+
+# ---- TF (Gazebo -> ROS2) ----
+- topic_name: /tf
+  ros_type_name: "tf2_msgs/msg/TFMessage"
+  gz_type_name: "ignition.msgs.Pose_V"
+  gz_topic: "/model/rover/tf"
+  direction: GZ_TO_ROS
+
+# ---- IMU ----
+- topic_name: /imu/data
+  ros_type_name: "sensor_msgs/msg/Imu"
+  gz_type_name: "ignition.msgs.IMU"
+  gz_topic: "/imu/data"
+  direction: GZ_TO_ROS
+
+# ---- 速度控制 (ROS2 -> Gazebo) ----
+- topic_name: /cmd_vel
+  ros_type_name: "geometry_msgs/msg/Twist"
+  gz_type_name: "ignition.msgs.Twist"
+  gz_topic: "/model/rover/cmd_vel"
+  direction: ROS_TO_GZ
+
+# ---- 时钟 ----
+- topic_name: /clock
+  ros_type_name: "rosgraph_msgs/msg/Clock"
+  gz_type_name: "ignition.msgs.Clock"
+  gz_topic: "/clock"
+  direction: GZ_TO_ROS

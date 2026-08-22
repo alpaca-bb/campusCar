@@ -1,0 +1,5 @@
+hikrobot_camera:
+  ros__parameters:
+    camera_ip: "192.168.1.101"
+    frame_id: "camera_frame"
+    fps: 10.0
