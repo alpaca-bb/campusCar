@@ -43,7 +43,7 @@
 
 /* ====== 串口协议定义 ====== */
 #define FRAME_HEADER         0xABCD  /* 帧头 */
-#define SERIAL_COMMAND_SIZE  8       /* 命令帧长度 (标准8字节) */
+#define SERIAL_COMMAND_SIZE  10      /* 命令帧长度 (扩展10字节：支持舵机控制) */
 
 /* ====== PWM 参数 (STM32H723: TIM1时钟=200MHz, PSC=199 → 1MHz 计数) ====== */
 /* 1 个计数 = 1μs，所以 1000 计数=1.0ms, 1500 计数=1.5ms(停止), 2000 计数=2.0ms */
@@ -71,6 +71,13 @@
 /* 舵机使用的定时器和通道：TIM2_CH1 → PA00 (板上丝印 RA00 对应 TIM2_CH1) */
 #define SERVO_HTIM            htim2
 #define SERVO_TIM_CH          TIM_CHANNEL_1
+
+/* ====== 舵机三档位定义 ====== */
+#define SERVO_GEAR_1    90   /* 档位1：中间位置 */
+#define SERVO_GEAR_2    60   /* 档位2：向线束方向转30° (如果不对改成120) */
+#define SERVO_GEAR_3    30   /* 档位3：继续向线束方向转30° (如果不对改成150) */
+
+static uint8_t current_gear = 1;  /* 当前档位 */
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -81,11 +88,13 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-/* 命令帧结构 (8 字节) - 标准hoverboard协议 */
+/* 命令帧结构 (10 字节) - 扩展hoverboard协议，支持舵机控制 */
 typedef struct __attribute__((packed)) {
     uint16_t start;       /* 帧头 0xABCD */
     int16_t  steer;       /* 转向命令 (-1000~1000) */
     int16_t  speed;       /* 速度命令 (-1000~1000) */
+    uint8_t  servo_gear;  /* 舵机档位 (1/2/3, 0表示不改变) */
+    uint8_t  reserved;    /* 保留字段 */
     uint16_t checksum;    /* XOR 校验和 */
 } SerialCommand;
 
@@ -122,7 +131,7 @@ static void debug_print(const char *str)
     HAL_UART_Transmit(&huart1, (uint8_t *)str, (uint16_t)strlen(str), 200);
 }
 
-/* 解析 hoverboard 协议命令，返回值：0=成功, 1=帧头错误, 2=校验错误 */
+/* 解析 hoverboard 协议命令（10字节，支持舵机），返回值：0=成功, 1=帧头错误, 2=校验错误 */
 static int parse_command(const uint8_t *data, SerialCommand *cmd)
 {
     uint16_t checksum_calc;
@@ -130,9 +139,9 @@ static int parse_command(const uint8_t *data, SerialCommand *cmd)
 
     /* 打印接收到的原始数据 */
     snprintf(buf, sizeof(buf),
-             "\r\n[RX] %02X %02X %02X %02X %02X %02X %02X %02X\r\n",
-             data[0], data[1], data[2], data[3],
-             data[4], data[5], data[6], data[7]);
+             "\r\n[RX] %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\r\n",
+             data[0], data[1], data[2], data[3], data[4], 
+             data[5], data[6], data[7], data[8], data[9]);
     debug_print(buf);
 
     /* 检查帧头 */
@@ -148,10 +157,16 @@ static int parse_command(const uint8_t *data, SerialCommand *cmd)
     /* 解析数据 */
     cmd->steer = (int16_t)((uint16_t)data[2] | ((uint16_t)data[3] << 8));
     cmd->speed = (int16_t)((uint16_t)data[4] | ((uint16_t)data[5] << 8));
-    cmd->checksum = (uint16_t)data[6] | ((uint16_t)data[7] << 8);
+    cmd->servo_gear = data[6];  /* 舵机档位 */
+    cmd->reserved = data[7];    /* 保留 */
+    cmd->checksum = (uint16_t)data[8] | ((uint16_t)data[9] << 8);
 
-    /* XOR 校验 */
-    checksum_calc = cmd->start ^ (uint16_t)cmd->steer ^ (uint16_t)cmd->speed;
+    /* XOR 校验：start ^ steer ^ speed ^ servo_gear ^ reserved */
+    checksum_calc = cmd->start ^ 
+                    (uint16_t)cmd->steer ^ 
+                    (uint16_t)cmd->speed ^ 
+                    ((uint16_t)cmd->servo_gear | ((uint16_t)cmd->reserved << 8));
+    
     if (cmd->checksum != checksum_calc) {
         snprintf(buf, sizeof(buf),
                  "[ERR] Checksum: got 0x%04X, calc 0x%04X\r\n",
@@ -168,8 +183,8 @@ static int parse_command(const uint8_t *data, SerialCommand *cmd)
 
     /* 打印解析结果 */
     snprintf(buf, sizeof(buf),
-             "[OK] steer=%d speed=%d\r\n",
-             cmd->steer, cmd->speed);
+             "[OK] steer=%d speed=%d servo_gear=%d\r\n",
+             cmd->steer, cmd->speed, cmd->servo_gear);
     debug_print(buf);
 
     return 0;  /* 成功 */
@@ -222,6 +237,39 @@ static void led_stage(uint8_t stage_num)
 
     snprintf(buf, sizeof(buf), "[STAGE] === %u ===\r\n", (unsigned)stage_num);
     debug_print(buf);
+}
+
+/**
+ * @brief 切换舵机档位
+ * @param gear 档位 (1/2/3)
+ */
+void Servo_SetGear(uint8_t gear)
+{
+    uint8_t target_angle = SERVO_GEAR_1;
+    
+    switch(gear) {
+        case 1:
+            target_angle = SERVO_GEAR_1;
+            current_gear = 1;
+            break;
+        case 2:
+            target_angle = SERVO_GEAR_2;
+            current_gear = 2;
+            break;
+        case 3:
+            target_angle = SERVO_GEAR_3;
+            current_gear = 3;
+            break;
+        default:
+            return;  /* 无效档位 */
+    }
+    
+    Servo_SetAngle(target_angle);
+    
+    /* 通过串口反馈当前档位 */
+    char msg[50];
+    snprintf(msg, sizeof(msg), "[SERVO] Gear %d -> %d°\r\n", gear, target_angle);
+    debug_print(msg);
 }
 
 /* USER CODE END 0 */
@@ -289,9 +337,10 @@ int main(void)
   if (Servo_Init() != 0) {
     debug_print("[ERR] Servo init failed!\r\n");
   } else {
-    debug_print("[SERVO] Init OK, starting test sequence...\r\n");
-    Servo_TestSequence(led_stage);  /* 6 阶段测试 */
-    debug_print("[SERVO] Test complete.\r\n");
+    debug_print("[SERVO] Init OK.\r\n");
+    /* 初始化到档位1（90度中间位置） */
+    Servo_SetGear(1);
+    debug_print("[SERVO] Ready for manual control (press 1/2/3).\r\n");
   }
 
 /* ROLLBACK-PWM-BEGIN (使用新模块) */
@@ -373,15 +422,13 @@ int main(void)
 #endif
 /* ROLLBACK-PWM-2-END ----------------------------------------------------------- */
 
-  /* 主循环：PC14 闪烁 + 等待串口命令 + UART7 心跳 + 反馈帧 + 舵机测试 */
+  /* 主循环：PC14 闪烁 + 等待串口命令 + UART7 心跳 + 反馈帧 + 键盘档位控制 */
   uint32_t last_led_tick = HAL_GetTick();
   uint32_t last_cmd_tick = HAL_GetTick();
   uint32_t last_feedback_tick = HAL_GetTick();
-  uint32_t last_servo_tick = HAL_GetTick();  /* 舵机测试定时 */
-  uint8_t servo_angle = 30;                   /* 舵机当前角度 */
-  int8_t servo_direction = 1;                 /* 舵机扫描方向 */
   uint8_t cmd_buffer[SERIAL_COMMAND_SIZE] = {0};
   SerialCommand current_cmd = {0};
+  uint8_t key_buffer[1];  /* 键盘控制缓冲区 */
 
   while (1)
   {
@@ -399,7 +446,7 @@ int main(void)
     /* 等待串口命令（改为非阻塞，超时1ms） */
     if (HAL_UART_Receive(&huart1, cmd_buffer, SERIAL_COMMAND_SIZE, 1) == HAL_OK)
     {
-      /* 收到 8 字节数据，解析命令 */
+      /* 收到 10 字节数据，解析命令 */
       int result = parse_command(cmd_buffer, &current_cmd);
       if (result == 0)
       {
@@ -410,6 +457,13 @@ int main(void)
         HoverboardApp_SetCommand(current_cmd.steer, current_cmd.speed);
 #endif
 /* ROLLBACK-PWM-3-END */
+
+        /* 根据 servo_gear 控制舵机档位 */
+        if (current_cmd.servo_gear >= 1 && current_cmd.servo_gear <= 3)
+        {
+          Servo_SetGear(current_cmd.servo_gear);
+        }
+
         last_cmd_tick = HAL_GetTick();
 
         /* 立即发送反馈帧给 NUC */
@@ -445,29 +499,6 @@ int main(void)
     {
       send_feedback(&current_cmd);
       last_feedback_tick = HAL_GetTick();
-    }
-
-    /* 舵机循环扫描测试：每 500ms 改变角度，30°~90° 往返 */
-    if ((HAL_GetTick() - last_servo_tick) >= 500)
-    {
-      servo_angle += (servo_direction * 10);  /* 每次移动10° */
-      
-      /* 到达边界时反向 */
-      if (servo_angle >= 90) {
-        servo_angle = 90;
-        servo_direction = -1;
-      } else if (servo_angle <= 30) {
-        servo_angle = 30;
-        servo_direction = 1;
-      }
-      
-      Servo_SetAngle(servo_angle);
-      last_servo_tick = HAL_GetTick();
-      
-      /* 调试输出：打印当前角度 */
-      char debug_buf[50];
-      snprintf(debug_buf, sizeof(debug_buf), "[SERVO] Angle: %u°\r\n", servo_angle);
-      debug_print(debug_buf);
     }
     /* USER CODE END WHILE */
 
