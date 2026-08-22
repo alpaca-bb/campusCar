@@ -1,0 +1,12 @@
+# 请求绕行路径服务
+# Request
+geometry_msgs/Point start_position
+geometry_msgs/Point goal_position
+string[] avoid_defect_ids
+---
+# Response
+geometry_msgs/PoseStamped[] detour_path
+float32 estimated_distance
+float32 estimated_duration
+bool success
+string message

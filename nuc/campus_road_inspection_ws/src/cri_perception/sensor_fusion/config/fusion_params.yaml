@@ -1,0 +1,11 @@
+sensor_fusion:
+  ros__parameters:
+    # 激光到相机的外参变换 [x, y, z, roll, pitch, yaw]
+    # 这些值需要通过标定获得
+    lidar_to_camera_tf: [0.1, 0.0, 0.2, 0.0, 0.0, 0.0]
+    
+    matching_distance_threshold: 1.0
+    confidence_boost_factor: 1.5
+    confidence_penalty_factor: 0.7
+    min_fused_confidence: 0.4
+    time_sync_slop: 0.1

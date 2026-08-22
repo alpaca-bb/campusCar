@@ -1,0 +1,10 @@
+orbbec_camera:
+  ros__parameters:
+    frame_id: "orbbec_color_frame"
+    depth_frame_id: "orbbec_depth_frame"
+    width: 640
+    height: 480
+    fps: 30
+    timeout_ms: 1000
+    enable_color: true
+    enable_depth: true

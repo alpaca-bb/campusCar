@@ -1,0 +1,9 @@
+# 查询路况服务
+# Request
+geometry_msgs/Point query_center
+float32 query_radius
+---
+# Response
+RoadCondition road_condition
+bool success
+string message

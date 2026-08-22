@@ -1,0 +1,20 @@
+# ============================================================
+# 路面缺陷检测 (RDD2020 / N-RDD2024 7类)
+#   YOLOv8 训练用 data.yaml
+#   训练脚本: train_road_defect.py 会自动引用本文件
+# ============================================================
+path: datasets/rdd2024          # 数据集根目录（相对本 .yaml）
+
+train: images/train             # 训练集图片
+val:   images/val               # 验证集图片
+test:  images/test              # (可选) 测试集图片
+
+# 7 类缺陷（顺序必须和 streamlit_app.py 里 IDX2CODE 完全一致）
+names:
+  0: D00   # 横向裂缝 Transverse crack
+  1: D10   # 纵向裂缝 Longitudinal crack
+  2: D20   # 龟裂 / 鳄鱼裂 Alligator crack
+  3: D40   # 坑槽 Pothole
+  4: D43   # 交叉口 / 路口破损 Crosswalk / intersection damage
+  5: D44   # 沉降 / 凹陷 Rutting / Subsidence
+  6: D50   # 施工 / 修补区域 Manhole / repair patch

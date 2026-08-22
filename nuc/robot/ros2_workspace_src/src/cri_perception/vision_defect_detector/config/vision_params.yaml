@@ -1,0 +1,9 @@
+vision_defect_detector:
+  ros__parameters:
+    model_path: "/home/qyb413/CyberLuban/campusCar/vision_models/models/campus_road_best.pt"
+    confidence_threshold: 0.40
+    input_size: 960
+    device: "cpu"
+    enable_visualization: true
+    defect_id_prefix: "vision"
+    image_topic: "/camera/image_raw"

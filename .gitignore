@@ -1,5 +1,8 @@
-# === STM32 编译产物 ===
+# === 项目生成物 ===
 build/
+install/
+log/
+devel/
 Debug/
 Release/
 *.elf
@@ -10,18 +13,34 @@ Release/
 *.o
 *.d
 
-# === STM32 IDE 配置 ===
+# === STM32 / IDE 配置 ===
 .settings/
 .metadata/
 **/.settings/
-
-# === VS Code（可选保留，注释掉则上传） ===
-# .vscode/
+.vscode/
+.idea/
 
 # === Python ===
 __pycache__/
 *.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
 *.egg-info/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+.installed.cfg
+*.egg
 .venv/
 venv/
 
@@ -30,6 +49,8 @@ venv/
 *.tmp
 *.bak
 *.swp
+*.swo
+*~
 
 # === 系统文件 ===
 .DS_Store
@@ -39,3 +60,33 @@ Thumbs.db
 .env
 *.key
 *.pem
+
+# === 项目数据 / 历史内容 ===
+datasets/training/
+datasets/testing/
+brain/ue5_project/
+tools/rtk_original/
+nuc/tools/
+docs/tools/rtk_original/
+docs/nuc/tools/rtk_original/
+archive/backups/*.zip
+archive/old_versions/
+CyberLubanTwin/
+
+# === 大型构建产物与本地数据 ===
+**/Binaries/
+**/Content/Paks/
+**/Content/Movies/
+**/RoadDefect/.git_disabled/
+**/Road-Damage-and-Defect-Recognition-Model/.git_disabled/
+*.exe
+*.pdb
+*.dll
+*.ucas
+*.utoc
+*.pak
+*.zip
+*.mp4
+*.m4v
+*.pt
+

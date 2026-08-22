@@ -1,0 +1,9 @@
+vision_defect_detector:
+  ros__parameters:
+    model_path: "models/road_defect_yolov8n.xml"
+    confidence_threshold: 0.5
+    nms_threshold: 0.4
+    input_size: 640
+    device: "CPU"
+    enable_visualization: true
+    defect_id_prefix: "vision"
